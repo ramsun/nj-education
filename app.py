@@ -10,13 +10,14 @@ conn = 'mongodb://localhost:27017'
 client = pymongo.MongoClient(conn)
 dbnames = client.list_database_names()
 
+
 # Only perform the ELT process if the database does not exist
 if 'education_data' in dbnames:
+    print("db already exists")
     db = client.education_data
-    print("DB already exists")
 else:
-    db = client.education_data
     print("Populating db")
+    db = client.education_data
     init_db(db)
 
 
@@ -46,7 +47,6 @@ def stream_data():
     
     # Return the "data" object as a json
     return jsonify(data)
-
 
 
 if __name__ == "__main__":
