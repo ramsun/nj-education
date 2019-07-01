@@ -28,29 +28,28 @@ def init_db(db):
                 for file in files:
                         data = os.path.join(subdir, file)
                         districts_list.append(data)
-                #         districts_list.sort()
-                districts_list.pop(0)
+        districts_list.pop(0)
         # districts_list.reverse()
         grad_df=[]
         #  add all 4 year graduation from 2013 to 2018 to mongod
         for (file, year) in zip(districts_list, years):
                 data = file
-                #     defined variables labels
+        #     defined variables labels
                 grad_label = "grad_"+ year
                 df_label = grad_label +"_df"
-                
-                #     Read data & add to dataframe
+        
+        #     Read data & add to dataframe
                 grad_label = pd.read_csv(data)
                 df_label = pd.DataFrame(grad_label)
 
-                #     replace * with 0
+        #     replace * with 0
                 df_label['FOUR_YR_GRAD_RATE'] = df_label['FOUR_YR_GRAD_RATE'].str.replace('*','0')
                 df_label['FOUR_YR_ADJ_COHORT_COUNT'] = df_label['FOUR_YR_ADJ_COHORT_COUNT'].str.replace('*','0')
                 df_label['GRADUATED_COUNT'] = df_label['GRADUATED_COUNT'].str.replace('*','0')
                 df_label['FOUR_YR_GRAD_RATE'] = df_label['FOUR_YR_GRAD_RATE'].str.replace('-','0')
                 df_label['FOUR_YR_ADJ_COHORT_COUNT'] = df_label['FOUR_YR_ADJ_COHORT_COUNT'].str.replace('-','0')
                 df_label['GRADUATED_COUNT'] = df_label['GRADUATED_COUNT'].str.replace('-','0')
-                # set previous change to numeric (int)
+        # set previous change to numeric (int)
                 df_label['FOUR_YR_GRAD_RATE'] = pd.to_numeric(df_label['FOUR_YR_GRAD_RATE'])
                 df_label['FOUR_YR_ADJ_COHORT_COUNT'] = pd.to_numeric(df_label['FOUR_YR_ADJ_COHORT_COUNT'])
                 df_label['GRADUATED_COUNT'] = pd.to_numeric(df_label['GRADUATED_COUNT'])
@@ -59,9 +58,12 @@ def init_db(db):
         frame = pd.concat(grad_df, axis=0, ignore_index=True)
 
         frame = frame.filter(['YEAR','COUNTY_NAME', 'DISTRICT_NAME','SCHOOL_NAME','SUBGROUP','FOUR_YR_ADJ_COHORT_COUNT','FOUR_YR_GRAD_RATE','GRADUATED_COUNT'])
+        frame['YEAR']=frame['YEAR'].astype(int)
 
         frame = frame.sort_values(by=['YEAR'])
 
+        #################################################
+        # School Budget Data
         # files
         rootdir = './data/district'
 
@@ -82,56 +84,75 @@ def init_db(db):
         #  add all 4 year graduation from 2013 to 2018 to mongod
         for (file, year) in zip(budget_list, years):
                 data = file
-                #     defined variables labels
+        #     defined variables labels
                 budget_label = "district_budget"+ year
                 df_label = budget_label +"_df"    
-                
-                #     Read data & add to dataframe
+        
+        #     Read data & add to dataframe
                 grad_label = pd.read_csv(data)
                 df_label = pd.DataFrame(grad_label)
                 df_label = df_label.filter(['YEAR','COUNTY_NAME', 'DISTRICT_NAME','TOTAL'])
-                #     df.rename(index=str, columns={"A": "a", "C": "c"})
-                df_label = df_label.rename(index=str, columns={"TOTAL": "TOTAL_BUDGET"})
-                #     df["a"] = pd.to_numeric(df["a"])
-                #     df_label["YEAR"] = pd.to_numeric(df_label["YEAR"])
+                df_label = df_label.rename(index=str, columns={"TOTAL": "DISTRICT_BUDGET"})
                 df_budget.append(df_label)
 
         frame_budget = pd.concat(df_budget, axis=0, ignore_index=True)
+        frame_budget['YEAR']=frame_budget['YEAR'].astype(int)
+
         frame_budget = frame_budget.sort_values(by=['YEAR'])
 
+        budget_df = pd.merge(frame_budget,
+                        frame,
+                        how='inner',
+                        on=['YEAR', 'COUNTY_NAME', 'DISTRICT_NAME'])
+        
+        #########################
+        # Scrape census data
         census_data = './data/citylocs_geocodio.csv'
         census_data = pd.read_csv(census_data)
         census_df = pd.DataFrame(census_data)
-        census_df.head()
         census_df.columns = census_df.columns.str.replace(" ", "_")
 
+        #Drop columns not required
+        census_df = census_df.drop(columns=['Street', 'Country', 'State'])
+
+        #Extract all the counties to be filtered from original dataset for census
+        lstCounty = budget_df["COUNTY_NAME"].str.strip().tolist()
+        lstUniqueCounty = pd.unique(lstCounty)
+
+        #converting census data to match frame county
+        census_df['County'] = census_df['County'].str.upper()
+        census_df['County'] = census_df['County'].str.replace('COUNTY','').str.strip()
+
+        #Filter only relevant data
+        census_filtered_df = census_df[census_df['County'].isin(lstUniqueCounty)]
+
+        # Scrape population data
         population_data = './data/census_pop.csv'
         population_data = pd.read_csv(population_data)
         population_df = pd.DataFrame(population_data)
         population_df = population_df.rename(columns = {'Zipcode': 'Zip'})
-
-        result_df = pd.merge(census_df,
+ 
+        #Merging population with regional census data
+        pop_census_df = pd.merge(census_filtered_df,
                         population_df,
                         how='left',
-                        on='Zip'
-                        )
+                        on='Zip')
 
-        result = frame.join(frame_budget, on='YEAR', how='left', lsuffix='_left', rsuffix='_right')
-        #     df.rename(index=str, columns={"A": "a", "C": "c"})
-        result = result.rename(index = str, columns={'DISTRICT_NAME_left' : 'DISTRICT_NAME'})
+        # Merge census and graduation data
+        popcensus_budget_df = pop_census_df.merge(budget_df, left_on=['County', 'DISTRICT_NAME'], right_on=['COUNTY_NAME', 'DISTRICT_NAME'], how='inner')
 
+        # clean merged data set
+        popcensus_budget_df = popcensus_budget_df[popcensus_budget_df.GRADUATED_COUNT !=0]
 
-        final_df = pd.merge(result, result_df, how ='left', on = 'DISTRICT_NAME')
+        # convert the dataframe to a diciontary, which can be pushed to mongo
+        final_dict = popcensus_budget_df.to_dict('records')
 
-        # final_df = final_df.drop(columns=['YEAR_y', 'COUNTY_NAME_y'],  axis=1)
-        final_df = final_df[final_df.GRADUATED_COUNT !=0]
-        final_df
-
-        final_dict = final_df.to_dict('records')
-        final_dict
-
+        # create mongo collection
         collection = db.education_data
         # drop collection if duplicate
         db.collection.drop()
         # add data to collection
         collection.insert_many(final_dict)
+
+        # df.to_csv(r'Path where you want to store the exported CSV file\File Name.csv')
+        popcensus_budget_df.to_csv(r'./data/merge_data.csv')
