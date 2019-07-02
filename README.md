@@ -1,7 +1,7 @@
 # nj-education
-
-1. Team Members
-  1. Darel Rivera
-  1. Krystal Sanhudo
-  1. Nagarajaradhya Basavaradhya
-  1. Ramamurthy Sundar
+---
+## Team Members
+1. Darel Rivera (ETL)
+2. Krystal Sanhudo (Tableau EDA)
+3. Nagarajaradhya Basavaradhya (Tableau EDA)
+4. Ramamurthy Sundar (Machine Learning)
